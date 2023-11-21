@@ -30,7 +30,8 @@ public class NotificationScheduler {
         this.bot = bot;
     }
 
-    @Scheduled(fixedDelayString = "${currency-change.upd.milliseconds}")
+    // old logic
+   // @Scheduled(fixedDelayString = "${currency-change.upd.milliseconds}")
     public void getCurrencyChanges() {
         log.info("Get currency updates...");
         Map<String, BigDecimal> currentCurrencyValues = currencyService.getCurrency();
@@ -55,14 +56,38 @@ public class NotificationScheduler {
         prevCurrencyValues = currentCurrencyValues;
     }
 
+    // new logic NOT READY YET
+    @Scheduled(fixedDelayString = "${currency-change.upd.milliseconds}")
+    public void newLogic() {
+        Map<String, BigDecimal> currCurrencyValues = currencyService.getCurrencyFromAPI(); // save to DB every 30 sec
+        // find users for notifications by the time
+        List<User> users = userService.getUsersToNotify();
+        users.forEach(user -> {
+            // get prev val
+            Map<String, BigDecimal> prCurrencyValues = currencyService.getUserPreviousCurrencyList(user.getTimeOfStart());
+            Map<String, Double> changes = new HashMap<>();
+
+            Set<String> symbols = prCurrencyValues.keySet();
+            symbols.stream()
+                    .filter(s -> prCurrencyValues.get(s).compareTo(currCurrencyValues.get(s)) != 0)
+                    .forEach(s -> calculateCurrencyChangeNew(changes, s, prCurrencyValues.get(s),
+                            currCurrencyValues.get(s), user.getPercent()));
+
+            if (ObjectUtils.isNotEmpty(changes)) {
+                log.info("There are some currency changes");
+                notifyUsers(changes, List.of(user));
+            }
+        });
+    }
+
     private void notifyUsers(Map<String, Double> changes, List<User> users) {
         if (ObjectUtils.isNotEmpty(changes)) {
             users.forEach(user -> {
-            // list of changes not for all users
-            // collect notifications for the user!!!
-            String notificationMessage = createNotificationMessage(changes, user.getPercent());
-            String[] messageArr = notificationMessage.split("(?<=\\G.{4000})");
-            List<String> messages = Arrays.asList(messageArr);
+                // list of changes not for all users
+                // collect notifications for the user!!!
+                String notificationMessage = createNotificationMessage(changes, user.getPercent());
+                String[] messageArr = notificationMessage.split("(?<=\\G.{4000})");
+                List<String> messages = Arrays.asList(messageArr);
                 bot.sendUpdateMessage(user.getChatId(),
                         "Hey! There is an info about the currency changes: ");
                 messages.forEach(m -> bot.sendUpdateMessage(user.getChatId(), m));
@@ -73,7 +98,7 @@ public class NotificationScheduler {
 
     private String createNotificationMessage(Map<String, Double> changes, Integer percent) {
         return changes.keySet().stream()
-                .filter(key-> changes.get(key) >= percent)
+                .filter(key -> changes.get(key) >= percent)
                 .map(key -> key + " -> " + changes.get(key))
                 .collect(Collectors.joining(", ", "[", "]"));
     }
@@ -85,6 +110,22 @@ public class NotificationScheduler {
                 .multiply(new BigDecimal(100)).setScale(2, RoundingMode.HALF_EVEN);
         double res = result.setScale(0, RoundingMode.HALF_EVEN).abs().doubleValue();
         // collect all possible changes
-        changes.put(symbol, res);
+        if (res > 0) {
+            changes.put(symbol, res);
+        }
+
+    }
+
+    private void calculateCurrencyChangeNew(Map<String, Double> changes, String symbol, BigDecimal prevVal,
+                                         BigDecimal curVal, int userPercent) {
+        BigDecimal result = (prevVal.divide(curVal, 2, RoundingMode.HALF_EVEN)
+                .subtract(new BigDecimal(1)))
+                .multiply(new BigDecimal(100)).setScale(2, RoundingMode.HALF_EVEN);
+        double res = result.setScale(0, RoundingMode.HALF_EVEN).abs().doubleValue();
+        // collect all possible changes
+        if (res >= userPercent) {
+            changes.put(symbol, res);
+        }
+
     }
 }
