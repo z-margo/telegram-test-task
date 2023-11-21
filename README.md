@@ -30,6 +30,7 @@ FYI: fixedDelay logic is used!
 1. Save all currency values to DB with current time (by schedule).
 2. Get users to notify by time parameter and calculate changes the same way as implemented where **previous val is currency by the time to start**.
 
+### See the result in the separate brunch https://github.com/z-margo/telegram-test-task/tree/refactoring_logic
 
 # Technologies:
 
